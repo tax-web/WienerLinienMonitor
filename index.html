@@ -18,6 +18,7 @@
     --sbahn:#0d6ab5;
     --bus:#1a8b8b;
     --late:#f0a202;
+    --go:#33b072;
     --font-d:"IBM Plex Sans Condensed",system-ui,sans-serif;
     --font-m:"IBM Plex Mono",ui-monospace,monospace;
   }
@@ -117,6 +118,12 @@
     .notice{font-size:12.5px;margin:2px 4px 6px}
     .chip{font-size:10px;margin-left:6px}
   }
+  .row.best{box-shadow:inset 4px 0 0 var(--go);background:rgba(51,176,114,.08)}
+  .conn{font-size:13px;color:#9fd9b8;font-family:var(--font-m);margin-top:2px;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .conn span{color:var(--dim)}
+  .row.best .conn{color:var(--go);font-weight:600}
+  @media (max-width:520px){ .conn{font-size:11px} }
 </style>
 </head>
 <body>
@@ -214,9 +221,21 @@ const CONFIG = {
     // eine haeufig fahrende Linie keine seltenere aus der Anzeige draengen.
     // trafficInfo : true blendet Stoerungsmeldungen der Wiener Linien fuer die
     //               Linien dieses Kastens ein (rot hinterlegt, oben im Kasten).
+    // hideBelowMinutes : Fussweg zu dieser Haltestelle. Busse, die frueher
+    //               abfahren, werden ausgeblendet (ersetzt hier den
+    //               allgemeinen Wert oben).
+    // connect     : Anschluss an die S-Bahn. Jede Buszeile zeigt den ersten
+    //               Zug, den du mit diesem Bus erreichst. Der erste erreich-
+    //               bare Bus wird gruen markiert.
+    //   panel           : id des S-Bahn-Kastens
+    //   towards         : Ziele der gewuenschten Richtung. Leer lassen heisst:
+    //                     die "outbound"-Liste des S-Bahn-Kastens (Suedstrecke)
+    //   rideMinutes     : Fahrzeit des Busses bis Atzgersdorf
+    //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
     { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
       source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
-      trafficInfo: true },
+      trafficInfo: true, hideBelowMinutes: 5,
+      connect: { panel: "atzgersdorf", towards: "", rideMinutes: 4, transferMinutes: 3 } },
 
     // ---- S-Bahn, OeBB -------------------------------------------------------
     // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
@@ -546,6 +565,18 @@ async function refreshWeather(force) {
   }
 }
 
+/* ---------- Anschluss Bus an S-Bahn ---------- */
+
+function connectionFor(p, bus) {
+  const c = p.connect;
+  const target = CONFIG.panels.find(x => x.id === c.panel);
+  if (!target || !state[target.id] || !state[target.id].rows) return null;
+  const pattern = c.towards || target.outbound || "";
+  const re = pattern ? new RegExp(pattern, "i") : null;
+  const ready = bus.at.getTime() + ((c.rideMinutes || 0) + (c.transferMinutes || 0)) * 60000;
+  return state[target.id].rows.find(t => (!re || re.test(t.towards)) && t.at.getTime() >= ready) || null;
+}
+
 /* ---------- Aufbau und Rendering ---------- */
 
 function buildPanels() {
@@ -572,7 +603,7 @@ function renderPanel(p) {
   const now = Date.now();
   const due = st.rows
     .map(d => ({ ...d, min: Math.round((d.at - now) / 60000) }))
-    .filter(d => d.min >= CONFIG.hideBelowMinutes && d.min < 120);
+    .filter(d => d.min >= (typeof p.hideBelowMinutes === "number" ? p.hideBelowMinutes : CONFIG.hideBelowMinutes) && d.min < 120);
 
   // combine: mehrere Abfahrten derselben Linie und Richtung in eine Zeile
   let items;
@@ -608,6 +639,15 @@ function renderPanel(p) {
     items = due.map(d => ({ line: d.line, towards: d.towards, kind: d.kind, entries: [d] }));
   }
   items = items.slice(0, p.maxRows || 6);
+
+  // Anschluss an die S-Bahn: erster Zug ab Ankunft plus Umsteigezeit
+  let bestIdx = -1;
+  if (p.connect) {
+    items.forEach((g, i) => {
+      g.conn = connectionFor(p, g.entries[0]);
+      if (g.conn && (bestIdx < 0 || g.entries[0].at < items[bestIdx].entries[0].at)) bestIdx = i;
+    });
+  }
 
   // Warnhinweise. In der Nachtpause unterdrueckt, dort ist Stillstand gewollt.
   const warns = [];
@@ -651,15 +691,23 @@ function renderPanel(p) {
       (g.entries[0].platform ? " &middot; Bstg. " + escapeHtml(g.entries[0].platform) : "") +
       (CONFIG.showRbl && g.entries[0].rbl ? " &middot; RBL " + escapeHtml(g.entries[0].rbl) : "");
 
+    let connHtml = "";
+    if (g.conn) {
+      const arr = g.entries[0].at.getTime() + (p.connect.rideMinutes || 0) * 60000;
+      const slack = Math.round((g.conn.at.getTime() - arr) / 60000);
+      connHtml = '<div class="conn">Anschluss ' + escapeHtml(g.conn.line) + ' ' + escapeHtml(g.conn.towards) +
+                 ' ' + hhmm(g.conn.at) + ' <span>(Umstieg ' + slack + ' min)</span></div>';
+    }
+
     const soon = g.entries[0].live && g.entries[0].min <= 3;
     const cd = g.entries.map(d => d.min).join('<span class="sep">&middot;</span>');
 
     return '<div class="row' + (g.entries.length > 1 ? " combo" : "") +
-      (allPlan && mark ? " plan" : "") + '">' +
+      (allPlan && mark ? " plan" : "") + (items.indexOf(g) === bestIdx ? " best" : "") + '">' +
       '<div class="badge ' + g.kind + dir + '">' + escapeHtml(g.line) + '</div>' +
       '<div><div class="towards">' + escapeHtml(g.towards) +
       (allPlan && mark ? '<span class="chip">Soll</span>' : "") + '</div>' +
-      '<div class="meta">' + meta + '</div></div>' +
+      '<div class="meta">' + meta + '</div>' + connHtml + '</div>' +
       '<div class="cd' + (soon ? " soon" : "") + '">' + cd + '<small>min</small></div>' +
       '</div>';
   }).join("");

@@ -9,6 +9,8 @@ Eine einzige HTML-Datei, kein Server.
 | Atzgersdorf, S-Bahn | ÖBB Scotty-Liveticker (inoffiziell) | evaId 001192304 |
 | Franz-Asenbauer-Gasse, Richtung Westbahnhof | Wiener Linien OGD | RBL 1630 |
 
+Kopfzeile: Uhr, Wetter (Open-Meteo, Symbol und °C), Status.
+
 Einstellungen stehen kommentiert im Block `CONFIG` am Anfang des Skripts.
 Haltestellennummern (RBL) nachschlagen: https://till.mabe.at/rbl/
 
@@ -20,6 +22,7 @@ Advanced Web Settings, "Remove X-Frame, CSP and CORS protection":
 https://www.wienerlinien.at/*
 https://fahrplan.oebb.at/*
 https://v6.oebb.transport.rest/*
+https://api.open-meteo.com/*
 ```
 
 Die Ausnahme verarbeitet keine POST-Anfragen, deshalb laufen alle Abrufe per GET.

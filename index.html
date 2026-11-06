@@ -18,7 +18,6 @@
     --sbahn:#0d6ab5;
     --bus:#1a8b8b;
     --late:#f0a202;
-    --go:#33b072;
     --font-d:"IBM Plex Sans Condensed",system-ui,sans-serif;
     --font-m:"IBM Plex Mono",ui-monospace,monospace;
   }
@@ -30,11 +29,16 @@
     -webkit-user-select:none;user-select:none;
   }
   header{
-    display:flex;align-items:baseline;justify-content:space-between;
+    display:flex;align-items:center;justify-content:space-between;
     padding:14px 20px 10px;border-bottom:1px solid var(--rule);
   }
   header .clock{font-family:var(--font-m);font-size:34px;font-weight:600;letter-spacing:-.02em}
-  header .status{font-size:13px;color:var(--dim)}
+  header .status{font-size:13px;color:var(--dim);flex:1;text-align:right}
+  header .clock{flex:1}
+  .wx{display:flex;align-items:center;gap:10px;font-family:var(--font-m);font-size:30px;font-weight:600}
+  .wx svg{width:40px;height:40px}
+  .wx .sun{fill:#f5c542}.wx .moon{fill:#d9dee4}.wx .cloud{fill:#aeb8c2}.wx .drop{fill:#5aa9e6}
+  .wx .snow{fill:#e8f1f8}.wx .bolt{fill:#f5c542}.wx .fog{stroke:#aeb8c2;stroke-width:3;stroke-linecap:round}
   main{flex:1;display:grid;gap:1px;background:var(--rule);min-height:0}
   section{background:var(--panel);display:flex;flex-direction:column;min-height:0}
   .head{display:flex;align-items:center;gap:10px;padding:12px 18px 8px}
@@ -77,8 +81,6 @@
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
   }
   .notice b{color:#fff;font-weight:600}
-  .chip.go{background:var(--go);color:#06190f;font-weight:600}
-  .row.go .cd{color:var(--go)}
   .meta .leave{color:#cfe9db}
   .banner.warn{border-left-color:var(--late);background:rgba(240,162,2,.10);color:#e8c07a}
   .banner{
@@ -97,6 +99,7 @@
 <body>
 <header>
   <div class="clock" id="clock">--:--</div>
+  <div class="wx" id="wx"></div>
   <div class="status" id="status">wird geladen</div>
 </header>
 <main id="panels"></main>
@@ -161,6 +164,11 @@ const CONFIG = {
   // des Steigs, von dem die Fahrt abgeht. Danach wieder auf false.
   showRbl: false,
 
+  // Wetter in der Kopfzeile (Open-Meteo, kostenlos, ohne Schluessel).
+  // lat/lon: Standort, hier Bahnhof Atzgersdorf. everyMinutes: Abrufintervall.
+  // Zum Abschalten: weather: null
+  weather: { lat: 48.1473, lon: 16.2888, everyMinutes: 10 },
+
   // Ausweichquelle fuer die Bahn, falls die Hauptquelle einmal ausfaellt.
   // Nicht aendern.
   restBase: "https://v6.oebb.transport.rest",
@@ -181,8 +189,7 @@ const CONFIG = {
     // rowsPerLine: 1 heisst, jede Linie bekommt genau eine Zeile. Damit kann
     // eine haeufig fahrende Linie keine seltenere aus der Anzeige draengen.
     // walkMinutes : Fussweg zu genau dieser Haltestelle in Minuten. Die Zeile
-    //               zeigt dann "los in x min" und wird gruen mit "Jetzt los",
-    //               sobald es Zeit ist aufzubrechen.
+    //               zeigt dann zusaetzlich "los in x min".
     // trafficInfo : true blendet Stoerungsmeldungen der Wiener Linien fuer die
     //               Linien dieses Kastens ein (rot hinterlegt, oben im Kasten).
     { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
@@ -468,6 +475,55 @@ async function loadPanel(p) {
   }
 }
 
+/* ---------- Wetter (Open-Meteo) ---------- */
+
+const WX_ICONS = {
+  sun:   '<circle class="sun" cx="24" cy="24" r="9"/><g class="sun">' +
+         [0,45,90,135,180,225,270,315].map(a => '<rect x="22.5" y="3" width="3" height="7" rx="1.5" transform="rotate(' + a + ' 24 24)"/>').join("") + '</g>',
+  moon:  '<path class="moon" d="M30 8a16 16 0 1 0 10 26A13 13 0 0 1 30 8z"/>',
+  cloud: '<path class="cloud" d="M14 36h22a8 8 0 0 0 0-16 11 11 0 0 0-21-2A9 9 0 0 0 14 36z"/>',
+  part:  null, rain: null, snow: null, storm: null, fog: null
+};
+WX_ICONS.partDay   = '<g transform="scale(.7)">' + WX_ICONS.sun + '</g>' + '<g transform="translate(4 6) scale(.85)">' + WX_ICONS.cloud + '</g>';
+WX_ICONS.partNight = '<g transform="translate(1 0) scale(.7)">' + WX_ICONS.moon + '</g>' + '<g transform="translate(4 6) scale(.85)">' + WX_ICONS.cloud + '</g>';
+WX_ICONS.rain  = '<g transform="translate(0 -6)">' + WX_ICONS.cloud + '</g><path class="drop" d="M16 36l-3 7h3l3-7zM24 36l-3 7h3l3-7zM32 36l-3 7h3l3-7z"/>';
+WX_ICONS.snow  = '<g transform="translate(0 -6)">' + WX_ICONS.cloud + '</g><circle class="snow" cx="16" cy="39" r="2.4"/><circle class="snow" cx="24" cy="43" r="2.4"/><circle class="snow" cx="32" cy="39" r="2.4"/>';
+WX_ICONS.storm = '<g transform="translate(0 -6)">' + WX_ICONS.cloud + '</g><path class="bolt" d="M25 31l-7 10h5l-3 7 9-11h-5l3-6z"/>';
+WX_ICONS.fog   = '<path class="fog" d="M10 18h28M6 26h36M10 34h28M14 42h20" fill="none"/>';
+
+// WMO-Wettercode nach Symbol
+function wxIcon(code, isDay) {
+  if (code === 0 || code === 1) return isDay ? WX_ICONS.sun : WX_ICONS.moon;
+  if (code === 2) return isDay ? WX_ICONS.partDay : WX_ICONS.partNight;
+  if (code === 3) return WX_ICONS.cloud;
+  if (code === 45 || code === 48) return WX_ICONS.fog;
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return WX_ICONS.snow;
+  if (code >= 95) return WX_ICONS.storm;
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return WX_ICONS.rain;
+  return WX_ICONS.cloud;
+}
+
+let wxLast = 0;
+
+async function refreshWeather(force) {
+  const w = CONFIG.weather;
+  if (!w || (!force && inQuietHours())) return;
+  if (!force && Date.now() - wxLast < (w.everyMinutes || 10) * 60000) return;
+  try {
+    const url = "https://api.open-meteo.com/v1/forecast?latitude=" + w.lat + "&longitude=" + w.lon +
+                "&current=temperature_2m,weather_code,is_day&timezone=Europe%2FVienna";
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const c = (await res.json()).current || {};
+    if (typeof c.temperature_2m !== "number") throw new Error("keine Temperatur");
+    wxLast = Date.now();
+    $("wx").innerHTML = '<svg viewBox="0 0 48 48" aria-hidden="true">' + wxIcon(c.weather_code, c.is_day === 1) + '</svg>' +
+      '<span>' + Math.round(c.temperature_2m).toLocaleString("de-AT") + '°C</span>';
+  } catch (e) {
+    // Wetter ist Beiwerk: bei Fehler alten Wert stehen lassen, nichts melden
+  }
+}
+
 /* ---------- Aufbau und Rendering ---------- */
 
 function buildPanels() {
@@ -576,17 +632,14 @@ function renderPanel(p) {
     // Losgeh-Anzeige: Abfahrt minus Fussweg
     const walk = typeof p.walkMinutes === "number" ? p.walkMinutes : null;
     const leave = walk === null ? null : g.entries[0].min - walk;
-    const goNow = leave !== null && leave <= 0;
-    const soon = walk === null ? (g.entries[0].live && g.entries[0].min <= 3) : (!goNow && leave <= 2);
-    const leaveHtml = leave === null ? "" :
-      goNow ? "" : '<span class="leave">los in ' + leave + ' min</span> &middot; ';
+    const soon = walk === null ? (g.entries[0].live && g.entries[0].min <= 3) : leave <= 2;
+    const leaveHtml = leave === null || leave <= 0 ? "" : '<span class="leave">los in ' + leave + ' min</span> &middot; ';
     const cd = g.entries.map(d => d.min).join('<span class="sep">&middot;</span>');
 
     return '<div class="row' + (g.entries.length > 1 ? " combo" : "") +
-      (allPlan && mark ? " plan" : "") + (goNow ? " go" : "") + '">' +
+      (allPlan && mark ? " plan" : "") + '">' +
       '<div class="badge ' + g.kind + dir + '">' + escapeHtml(g.line) + '</div>' +
       '<div><div class="towards">' + escapeHtml(g.towards) +
-      (goNow ? '<span class="chip go">Jetzt los</span>' : "") +
       (allPlan && mark ? '<span class="chip">Soll</span>' : "") + '</div>' +
       '<div class="meta">' + leaveHtml + meta + '</div></div>' +
       '<div class="cd' + (soon ? " soon" : "") + '">' + cd + '<small>min</small></div>' +
@@ -637,6 +690,8 @@ tick();
 refresh();
 setInterval(tick, 1000);
 setInterval(refresh, CONFIG.refreshSeconds * 1000);
+refreshWeather(true);
+setInterval(() => refreshWeather(false), 60000);
 </script>
 </body>
 </html>

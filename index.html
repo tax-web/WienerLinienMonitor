@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Abfahrten</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d1013;
+    --panel:#151a1f;
+    --rule:#252d35;
+    --ink:#eef2f5;
+    --dim:#8794a0;
+    --wl:#e2231a;
+    --sbahn:#0d6ab5;
+    --bus:#1a8b8b;
+    --late:#f0a202;
+    --go:#33b072;
+    --font-d:"IBM Plex Sans Condensed",system-ui,sans-serif;
+    --font-m:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--ink);font-family:var(--font-d);
+    display:flex;flex-direction:column;overflow:hidden;
+    -webkit-user-select:none;user-select:none;
+  }
+  header{
+    display:flex;align-items:baseline;justify-content:space-between;
+    padding:14px 20px 10px;border-bottom:1px solid var(--rule);
+  }
+  header .clock{font-family:var(--font-m);font-size:34px;font-weight:600;letter-spacing:-.02em}
+  header .status{font-size:13px;color:var(--dim)}
+  main{flex:1;display:grid;gap:1px;background:var(--rule);min-height:0}
+  section{background:var(--panel);display:flex;flex-direction:column;min-height:0}
+  .head{display:flex;align-items:center;gap:10px;padding:12px 18px 8px}
+  .head h2{font-size:22px;font-weight:700;letter-spacing:.01em}
+  .head .tag{font-size:12px;color:var(--dim);font-family:var(--font-m);text-transform:uppercase;letter-spacing:.08em}
+  .rows{flex:1;overflow:hidden;padding:0 12px 12px}
+  .row{
+    display:grid;grid-template-columns:64px 1fr 92px;align-items:center;gap:12px;
+    padding:10px 6px;border-bottom:1px solid rgba(255,255,255,.05);
+  }
+  .badge{
+    font-weight:700;font-size:20px;text-align:center;border-radius:5px;
+    padding:5px 4px;background:#333c45;color:#fff;line-height:1;
+  }
+  .badge.metro{background:var(--wl)}
+  .badge.tram{background:var(--wl)}
+  .badge.bus{background:var(--bus)}
+  .badge.rail{background:var(--sbahn)}
+  .badge.dir-in{background:var(--sbahn)}      /* stadteinwaerts */
+  .badge.dir-out{background:#2f7d5f}          /* stadtauswaerts */
+  .towards{font-size:21px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{font-size:13px;color:var(--dim);font-family:var(--font-m);margin-top:2px}
+  .meta .delay{color:var(--late)}
+  .cd{font-family:var(--font-m);font-size:32px;font-weight:600;text-align:right;letter-spacing:-.03em}
+  .cd small{font-size:14px;color:var(--dim);margin-left:3px;font-weight:400}
+  .cd.soon{color:var(--late)}
+  .row.combo{grid-template-columns:64px 1fr 140px}
+  .row.combo .cd{font-size:27px}
+  .row.combo .cd .sep{color:var(--dim);margin:0 5px;font-weight:400}
+  .row.plan .cd{color:var(--dim);font-weight:400}
+  .row.plan .towards{color:#c3ccd4}
+  .chip{
+    font-family:var(--font-m);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    background:#3a444e;color:#dbe3ea;border-radius:3px;padding:2px 6px;margin-left:9px;
+    position:relative;top:-2px;
+  }
+  .notice{
+    margin:2px 6px 8px;padding:7px 10px;border-left:3px solid var(--wl);
+    background:rgba(226,35,26,.10);font-size:14px;line-height:1.35;color:#f1d3d1;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .notice b{color:#fff;font-weight:600}
+  .chip.go{background:var(--go);color:#06190f;font-weight:600}
+  .row.go .cd{color:var(--go)}
+  .meta .leave{color:#cfe9db}
+  .banner.warn{border-left-color:var(--late);background:rgba(240,162,2,.10);color:#e8c07a}
+  .banner{
+    display:flex;align-items:center;gap:8px;margin:2px 6px 8px;padding:7px 10px;
+    border-left:3px solid var(--dim);background:rgba(135,148,160,.10);
+    font-size:13px;color:var(--dim);font-family:var(--font-m);
+  }
+  .note{padding:14px 18px;font-size:15px;color:var(--dim);line-height:1.45}
+  .note code{font-family:var(--font-m);font-size:13px;color:#b9c4cf;word-break:break-all}
+  @media (orientation:portrait),(max-width:760px){
+    main{grid-template-columns:1fr !important;grid-auto-rows:min-content;align-content:start}
+    .rows{padding-bottom:6px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="clock" id="clock">--:--</div>
+  <div class="status" id="status">wird geladen</div>
+</header>
+<main id="panels"></main>
+
+<script>
+/* ============================================================================
+   EINSTELLUNGEN
+   Alles, was du im Normalfall aendern willst, steht in diesem Block.
+   Unterhalb davon beginnt der Programmteil, dort ist nichts zu tun.
+
+   Aufbau: Die Anzeige besteht aus "Panels". Ein Panel ist ein Kasten fuer
+   eine Haltestelle in einer Richtung. Untereinander im Hochformat, nebenein-
+   ander im Querformat. Die Reihenfolge der Panels unten ist die Reihenfolge
+   auf dem Bildschirm.
+
+   HALTESTELLENNUMMER FINDEN (Wiener Linien)
+   Jeder Steig hat eine eigene Nummer, die RBL. Sie legt zugleich die Richtung
+   fest, ein Filter nach Fahrtziel ist deshalb nicht noetig.
+   Nachschlagen unter:  https://till.mabe.at/rbl/
+   Haltestelle suchen, Richtung waehlen, die Zahl bei "RBL/StopId" uebernehmen.
+
+   BAHNHOFSNUMMER FINDEN (OeBB)
+   Die Bahn verwendet eine eigene Nummer, die evaId. Wenn du sie nicht kennst,
+   traegst du bei "query" einfach den Bahnhofsnamen ein und laesst "stopId"
+   leer, die Anzeige sucht die Nummer dann selbst.
+
+   ANPASSUNGEN, DIE NICHTS KAPUTT MACHEN
+   - Anzahl der Zeilen:            maxRows
+   - Ueberschrift und Untertitel:  title und tag
+   - Reihenfolge der Kaesten:      Bloecke unten verschieben
+   - Neuer Kasten:                 einen bestehenden Block kopieren,
+                                   id aendern (muss einmalig sein), RBL setzen
+
+   Achtung auf die Zeichensetzung: Jede Zeile endet mit einem Beistrich,
+   Texte stehen zwischen geraden Anfuehrungszeichen. Fehlt ein Beistrich oder
+   eine Klammer, bleibt der Bildschirm leer.
+   ============================================================================ */
+
+const CONFIG = {
+
+  // Wie oft neue Daten geholt werden, in Sekunden. 30 ist ein guter Wert,
+  // darunter belastet es die Datenquellen unnoetig.
+  refreshSeconds: 30,
+
+  // Fussweg zur Haltestelle in Minuten. Abfahrten, die frueher kommen,
+  // werden ausgeblendet, weil du sie ohnehin nicht mehr erreichst.
+  hideBelowMinutes: 1,
+
+  // Nachtruhe: in diesem Zeitfenster werden keine Daten geholt.
+  // from = ab dieser Stunde, to = bis zu dieser Stunde. 0 bis 6 heisst
+  // Mitternacht bis sechs Uhr frueh. Zum Abschalten beide auf 0 setzen.
+  quietHours: { from: 0, to: 6 },
+
+  // Ueberwachung der Datenquellen, in Minuten.
+  // staleMinutes  : so lange darf der letzte erfolgreiche Abruf her sein
+  // frozenMinutes : so lange darf sich der Inhalt einer Tafel nicht aendern,
+  //                 danach steht sie vermutlich still, obwohl der Abruf laeuft
+  staleMinutes: 10,
+  frozenMinutes: 45,
+
+  // Nur zum Einrichten: auf true setzen, dann steht in jeder Zeile die RBL
+  // des Steigs, von dem die Fahrt abgeht. Danach wieder auf false.
+  showRbl: false,
+
+  // Ausweichquelle fuer die Bahn, falls die Hauptquelle einmal ausfaellt.
+  // Nicht aendern.
+  restBase: "https://v6.oebb.transport.rest",
+
+  // ------------------------------------------------------------------------
+  // DIE KAESTEN. Reihenfolge hier = Reihenfolge am Bildschirm.
+  // ------------------------------------------------------------------------
+  panels: [
+
+    // ---- Bus, Wiener Linien -------------------------------------------------
+    // id       : interner Name, muss einmalig sein, kommt nicht auf den Schirm
+    // title    : grosse Ueberschrift des Kastens
+    // tag      : kleiner Text daneben, z. B. die Richtung
+    // source   : "wl" fuer Wiener Linien, "scotty" fuer die OeBB
+    // stopIds  : eine oder mehrere RBL, siehe https://till.mabe.at/rbl/
+    //            Mehrere Richtungen in einem Kasten: ["1648", "1649"]
+    // maxRows  : wie viele Zeilen der Kasten anzeigt
+    // rowsPerLine: 1 heisst, jede Linie bekommt genau eine Zeile. Damit kann
+    // eine haeufig fahrende Linie keine seltenere aus der Anzeige draengen.
+    // walkMinutes : Fussweg zu genau dieser Haltestelle in Minuten. Die Zeile
+    //               zeigt dann "los in x min" und wird gruen mit "Jetzt los",
+    //               sobald es Zeit ist aufzubrechen.
+    // trafficInfo : true blendet Stoerungsmeldungen der Wiener Linien fuer die
+    //               Linien dieses Kastens ein (rot hinterlegt, oben im Kasten).
+    { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
+      source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
+      walkMinutes: 1, trafficInfo: true },
+
+    // ---- S-Bahn, OeBB -------------------------------------------------------
+    // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
+    //                 anhand von "query" gesucht.
+    // query         : Name des Bahnhofs, wie ihn die OeBB schreibt
+    // skip          : was nicht angezeigt wird. Hier alle Busse, Strassenbahnen
+    //                 und U-Bahnen, denn die Bahnhofstafel listet auch die.
+    // products      : Vorfilter der OeBB. Diese Ziffernfolge bedeutet
+    //                 "nur S-Bahn und Regionalzuege". Besser nicht aendern.
+    // fetchJourneys : wie viele Fahrten roh geholt werden, bevor gefiltert wird
+    // outbound      : Ziele, die stadtauswaerts liegen. Sie bekommen eine
+    //                 gruene Nummer, alle uebrigen eine blaue. Weitere Ziele
+    //                 mit einem senkrechten Strich anhaengen. Gross- und
+    //                 Kleinschreibung ist egal.
+    { id: "atzgersdorf", title: "Atzgersdorf", tag: "S-Bahn",
+      source: "scotty", stopId: "001192304", query: "Atzgersdorf (Wien)",
+      skip: "^(bus|tram|u\\d)", products: "0000110000000000",
+      fetchJourneys: 40, maxRows: 6,
+      outbound: "mödling|modling|baden|liesing|wr[. ]*neustadt|perchtoldsdorf|leobersdorf" },
+
+    // ---- Strassenbahn, Wiener Linien ---------------------------------------
+    // combine : fasst mehrere Abfahrten derselben Linie in eine Zeile zusammen,
+    //           um Platz zu sparen. combine 2 und maxRows 2 ergibt zwei Zeilen
+    //           mit je zwei Abfahrten, also vier Abfahrten insgesamt.
+    { id: "asenbauer", title: "Franz-Asenbauer-Gasse", tag: "Richtung Westbahnhof",
+      source: "wl", stopIds: ["1630"], maxRows: 2, combine: 2 }
+
+    // Weitere Kaesten hier anhaengen. Vor einem neuen Block gehoert ein
+    // Beistrich hinter die schliessende geschweifte Klammer des vorherigen.
+
+  ]
+};
+
+/* Weitere Moeglichkeiten, die in den Kaesten oben nicht gebraucht werden:
+
+   stop      : Haltestellenname statt RBL, z. B.  stop: "Am Spiegeln"
+               Dann werden alle Steige dieser Haltestelle abgefragt, also
+               beide Richtungen. Braucht meist zusaetzlich "towards".
+   towards   : Filter auf das Fahrtziel, z. B.  towards: "atzgersdorf|alterlaa"
+   line      : Filter auf die Liniennummer, z. B.  line: "^60$"
+               Die Zeichen am Anfang und Ende bedeuten "genau 60",
+               damit nicht auch der Bus 60A mitlaeuft.
+   rowsPerLine: begrenzt, wie viele Zeilen eine einzelne Linie belegen darf.
+               1 heisst: jede Linie genau eine Zeile.
+   planMark  : auf false setzen, wenn Fahrten ohne Echtzeitdaten nicht mehr
+               grau und mit dem Zusatz "Soll" gekennzeichnet werden sollen.
+*/
+
+const WL_CSV = "https://www.wienerlinien.at/ogd_realtime/doku/ogd/wienerlinien-ogd-haltepunkte.csv";
+const WL_MON = "https://www.wienerlinien.at/ogd_realtime/monitor";
+// ÖBB: Scotty-Liveticker, beides GET. mgate.exe scheidet aus, Fully verarbeitet
+// bei aktiver CORS-Ausnahme keine POST-Anfragen.
+const SCOTTY_STOP = "https://fahrplan.oebb.at/bin/ajax-getstop.exe/dn";
+const SCOTTY_BOARD = "https://fahrplan.oebb.at/bin/stboard.exe/dn";
+const REST_PATHS = ["/api", ""];
+
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, "0");
+const hhmm = d => pad(d.getHours()) + ":" + pad(d.getMinutes());
+const state = {};                   // je Panel: rows, err, aufgeloeste IDs
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+function unhtml(v) {
+  const t = document.createElement("textarea");
+  t.innerHTML = String(v == null ? "" : v).replace(/<[^>]*>/g, "");
+  return t.value.trim();
+}
+function applyFilters(p, list) {
+  const line = p.line ? new RegExp(p.line, "i") : null;
+  const tow = p.towards ? new RegExp(p.towards, "i") : null;
+  const kept = list.filter(d => (!line || line.test(d.line)) && (!tow || tow.test(d.towards)));
+  // Fuer den Fall, dass ein Filter alles wegwirft: Richtungen merken
+  if (state[p.id]) {
+    state[p.id].available = [...new Set(list.map(d => d.line + " nach " + d.towards))].slice(0, 8);
+  }
+  return kept;
+}
+
+/* ---------- Wiener Linien ---------- */
+
+let wlCsv = null;
+
+async function wlStopIds(name) {
+  if (!wlCsv) {
+    const res = await fetch(WL_CSV, { cache: "no-store" });
+    if (!res.ok) throw new Error("Haltepunktliste HTTP " + res.status);
+    wlCsv = new TextDecoder("utf-8").decode(await res.arrayBuffer());
+  }
+  const want = name.toLowerCase();
+  const ids = [];
+  for (const line of wlCsv.split(/\r?\n/).slice(1)) {
+    const c = line.split(";");
+    if (c.length < 3) continue;
+    if (c[2].trim().toLowerCase().includes(want)) ids.push(c[0].trim());
+  }
+  if (!ids.length) throw new Error('Keine Haltepunkte fuer "' + name + '"');
+  return ids;
+}
+
+async function loadWl(p) {
+  const st = state[p.id];
+  if (!st.ids) st.ids = p.stopIds && p.stopIds.length ? p.stopIds : await wlStopIds(p.stop);
+  const url = WL_MON + "?" + st.ids.map(id => "stopId=" + encodeURIComponent(id)).join("&") +
+    (p.trafficInfo ? "&activateTrafficInfo=stoerungkurz&activateTrafficInfo=stoerunglang" : "");
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("Monitor HTTP " + res.status);
+  const json = await res.json();
+  const out = [];
+  for (const m of (json?.data?.monitors || [])) {
+    const rbl = m?.locationStop?.properties?.attributes?.rbl || m?.locationStop?.properties?.name || "";
+    for (const line of (m.lines || [])) {
+      for (const dep of (line.departures?.departure || [])) {
+        const t = dep.departureTime || {};
+        const planned = t.timePlanned ? new Date(t.timePlanned) : null;
+        const at = t.timeReal ? new Date(t.timeReal) : planned;
+        if (!at) continue;
+        out.push({
+          line: line.name,
+          towards: (line.towards || "").trim(),
+          kind: line.type === "ptMetro" ? "metro" : line.type === "ptTram" ? "tram" : "bus",
+          at: at, planned: planned, live: !!t.timeReal, platform: "", rbl: rbl
+        });
+      }
+    }
+  }
+  const rows = applyFilters(p, out).sort((a, b) => a.at - b.at);
+
+  // Stoerungsmeldungen: nur solche, die eine Linie dieses Kastens betreffen
+  st.notices = [];
+  if (p.trafficInfo) {
+    const mine = new Set(rows.map(d => String(d.line).toUpperCase()));
+    for (const t of (json?.data?.trafficInfos || [])) {
+      const lines = (t.relatedLines || []).map(l => String(l).toUpperCase());
+      const hit = lines.filter(l => mine.has(l));
+      if (!hit.length) continue;
+      const text = unhtml(t.title || t.name || "") ;
+      const desc = unhtml(t.description || "");
+      st.notices.push({ lines: hit.join(", "), text: text || desc, desc: text ? desc : "" });
+    }
+  }
+  return rows;
+}
+
+/* ---------- OeBB: Scotty-Liveticker (GET) ---------- */
+
+// Antworten sind in JS-Zuweisungen verpackt: "obj = {...};", Kodierung nicht dokumentiert.
+async function scotty(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("Scotty HTTP " + res.status);
+  const buf = await res.arrayBuffer();
+  let text;
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); }
+  catch (e) { text = new TextDecoder("iso-8859-1").decode(buf); }
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a < 0 || b < a) throw new Error("Scotty: unerwartete Antwort");
+  return JSON.parse(text.slice(a, b + 1));
+}
+
+async function scottyStopId(query) {
+  const json = await scotty(SCOTTY_STOP + "?REQ0JourneyStopsS0A=1&REQ0JourneyStopsB=12&js=true" +
+                            "&S=" + encodeURIComponent(query));
+  const hit = (json.suggestions || []).find(x => x.extId) || (json.suggestions || [])[0];
+  if (!hit) throw new Error('Station "' + query + '" nicht gefunden');
+  return hit.extId || hit.id;
+}
+
+const ddmmyyyy = d => pad(d.getDate()) + "." + pad(d.getMonth() + 1) + "." + d.getFullYear();
+
+function scottyWhen(da, ti) {
+  const dm = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(da || "");
+  const tm = /^(\d{1,2}):(\d{2})$/.exec(ti || "");
+  if (!dm || !tm) return null;
+  return new Date(+dm[3], +dm[2] - 1, +dm[1], +tm[1], +tm[2], 0);
+}
+
+async function scottyBoard(p, stopId, products) {
+  const now = new Date();
+  return scotty(SCOTTY_BOARD + "?L=vs_scotty.vs_liveticker&outputMode=tickerDataOnly&start=yes" +
+    "&boardType=dep&evaId=" + encodeURIComponent(stopId) +
+    "&productsFilter=" + products +
+    "&maxJourneys=" + (p.fetchJourneys || 40) +
+    "&additionalTime=0&selectDate=period" +
+    "&time=" + pad(now.getHours()) + "%3A" + pad(now.getMinutes()) +
+    "&dateBegin=" + ddmmyyyy(now) + "&dateEnd=" + ddmmyyyy(now));
+}
+
+async function loadScotty(p) {
+  const st = state[p.id];
+  if (!st.stopId) st.stopId = p.stopId || await scottyStopId(p.query);
+  const wanted = p.products || "1111111111111111";
+  let json = await scottyBoard(p, st.stopId, wanted);
+  // Bitmaske ist nicht dokumentiert: liefert sie nichts, ungefiltert nachfassen
+  if (!(json.journey || []).length && wanted !== "1111111111111111") {
+    json = await scottyBoard(p, st.stopId, "1111111111111111");
+  }
+  // Die Tafel meldet mit rtInfo, ob die Station ueberhaupt Echtzeit liefert.
+  // Ist das der Fall, bedeutet ein fehlendes rt-Objekt "keine Abweichung",
+  // also puenktlich, und nicht "keine Daten".
+  const boardRt = json.rtInfo === true;
+  const skip = p.skip ? new RegExp(p.skip, "i") : null;
+  const seen = new Set();
+  const out = [];
+  for (const j of (json.journey || [])) {
+    const rt = j.rt && typeof j.rt === "object" ? j.rt : null;
+    if (rt && /ausf|entf|cancel/i.test(String(rt.status || ""))) continue;
+    const name = unhtml(j.pr) || "Zug";
+    if (skip && skip.test(name)) continue;
+    const planned = scottyWhen(j.da, j.ti);
+    const at = rt && rt.dlt ? scottyWhen(rt.dld || j.da, rt.dlt) : planned;
+    if (!at) continue;
+    const key = (j.id || "") + "|" + at.getTime();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      line: name, towards: unhtml(j.st), kind: "rail",
+      at: at, planned: planned, live: !!rt || boardRt, platform: unhtml(j.tr)
+    });
+  }
+  return applyFilters(p, out).sort((a, b) => a.at - b.at);
+}
+
+/* ---------- Ausweichquelle: REST-Huelle (GET) ---------- */
+
+let restPath = null;
+
+async function rest(suffix) {
+  const paths = restPath === null ? REST_PATHS : [restPath];
+  let last = null;
+  for (const pth of paths) {
+    try {
+      const res = await fetch(CONFIG.restBase + pth + suffix, { cache: "no-store" });
+      if (!res.ok) { last = new Error("HTTP " + res.status); continue; }
+      const json = await res.json();
+      restPath = pth;
+      return json;
+    } catch (e) { last = e; }
+  }
+  throw last || new Error("REST nicht erreichbar");
+}
+
+async function loadRest(p) {
+  const loc = await rest("/locations?query=" + encodeURIComponent(p.query) + "&results=5");
+  const locs = Array.isArray(loc) ? loc : (loc.locations || []);
+  const hit = locs.find(l => (l.type === "stop" || l.type === "station") && l.id) || locs[0];
+  if (!hit || !hit.id) throw new Error("Station nicht gefunden");
+  const json = await rest("/stops/" + encodeURIComponent(hit.id) + "/departures?duration=120&results=" +
+                          ((p.maxRows || 6) + 8));
+  const list = Array.isArray(json) ? json : (json.departures || []);
+  // Die Tafel meldet mit rtInfo, ob die Station ueberhaupt Echtzeit liefert.
+  // Ist das der Fall, bedeutet ein fehlendes rt-Objekt "keine Abweichung",
+  // also puenktlich, und nicht "keine Daten".
+  const boardRt = json.rtInfo === true;
+  const skip = p.skip ? new RegExp(p.skip, "i") : null;
+  const out = [];
+  for (const d of list) {
+    if (d.cancelled === true) continue;
+    const when = d.when || d.plannedWhen;
+    if (!when) continue;
+    const name = (d.line && (d.line.name || d.line.id)) || "Zug";
+    if (skip && skip.test(name)) continue;
+    out.push({
+      line: name, towards: d.direction || "", kind: "rail",
+      at: new Date(when), planned: d.plannedWhen ? new Date(d.plannedWhen) : null,
+      live: typeof d.delay === "number", platform: d.platform || d.plannedPlatform || ""
+    });
+  }
+  return applyFilters(p, out).sort((a, b) => a.at - b.at);
+}
+
+async function loadPanel(p) {
+  if (p.source === "wl") return loadWl(p);
+  try { return await loadScotty(p); }
+  catch (e) {
+    try { return await loadRest(p); }
+    catch (e2) { throw new Error("Scotty: " + e.message + " | REST: " + e2.message); }
+  }
+}
+
+/* ---------- Aufbau und Rendering ---------- */
+
+function buildPanels() {
+  $("panels").style.gridTemplateColumns = "repeat(" + CONFIG.panels.length + ", 1fr)";
+  $("panels").innerHTML = CONFIG.panels.map(p =>
+    '<section><div class="head"><h2>' + escapeHtml(p.title) + '</h2>' +
+    '<span class="tag">' + escapeHtml(p.tag || "") + '</span></div>' +
+    '<div class="rows" id="rows-' + p.id + '"><div class="note">wird geladen</div></div></section>'
+  ).join("");
+  for (const p of CONFIG.panels) state[p.id] = { rows: [], err: null };
+}
+
+function renderPanel(p) {
+  const box = $("rows-" + p.id);
+  const st = state[p.id];
+  if (st.err && !(st.rows && st.rows.length)) {
+    const blocked = st.err instanceof TypeError || /failed to fetch|load failed|networkerror/i.test(st.err.message);
+    box.innerHTML = '<div class="note">Keine Daten.<br><code>' + escapeHtml(st.err.message) + '</code><br><br>' +
+      (blocked
+        ? 'Der Browser hat die Anfrage blockiert (CORS) oder die Gegenstelle ist nicht erreichbar.'
+        : 'Die Gegenstelle hat geantwortet, aber mit einem Fehler. Kein CORS-Problem.') + '</div>';
+    return;
+  }
+  const now = Date.now();
+  const due = st.rows
+    .map(d => ({ ...d, min: Math.round((d.at - now) / 60000) }))
+    .filter(d => d.min >= CONFIG.hideBelowMinutes && d.min < 120);
+
+  // combine: mehrere Abfahrten derselben Linie und Richtung in eine Zeile
+  let items;
+  if (p.combine > 1) {
+    const map = new Map();                // je Linie und Richtung sammeln,
+    for (const d of due) {                // dann in Bloecke zu p.combine teilen
+      const key = d.line + "|" + d.towards;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(d);
+    }
+    items = [];
+    for (const list of map.values()) {
+      let taken = 0;
+      for (let i = 0; i < list.length; i += p.combine) {
+        if (p.rowsPerLine && taken >= p.rowsPerLine) break;
+        const chunk = list.slice(i, i + p.combine);
+        items.push({ line: chunk[0].line, towards: chunk[0].towards, kind: chunk[0].kind, entries: chunk });
+        taken++;
+      }
+    }
+    items.sort((a, b) => a.entries[0].at - b.entries[0].at);
+  } else if (p.rowsPerLine) {
+    const count = new Map();
+    items = [];
+    for (const d of due) {
+      const key = d.line + "|" + d.towards;
+      const n = count.get(key) || 0;
+      if (n >= p.rowsPerLine) continue;
+      count.set(key, n + 1);
+      items.push({ line: d.line, towards: d.towards, kind: d.kind, entries: [d] });
+    }
+  } else {
+    items = due.map(d => ({ line: d.line, towards: d.towards, kind: d.kind, entries: [d] }));
+  }
+  items = items.slice(0, p.maxRows || 6);
+
+  // Warnhinweise. In der Nachtpause unterdrueckt, dort ist Stillstand gewollt.
+  const warns = [];
+  if (!inQuietHours()) {
+    const ageMin = t => Math.round((Date.now() - t) / 60000);
+    if (st.err) warns.push("Aktualisierung fehlgeschlagen, Anzeige eingefroren");
+    else if (st.lastOk && ageMin(st.lastOk) >= CONFIG.staleMinutes)
+      warns.push("Letzter Abruf um " + hhmm(new Date(st.lastOk)));
+    if (!st.err && st.lastChange && ageMin(st.lastChange) >= CONFIG.frozenMinutes)
+      warns.push("Tafel unveraendert seit " + hhmm(new Date(st.lastChange)));
+  }
+  const warnHtml = warns.map(w => '<div class="banner warn">' + escapeHtml(w) + '</div>').join("") +
+    (st.notices || []).slice(0, 2).map(n =>
+      '<div class="notice"><b>' + escapeHtml(n.lines) + ':</b> ' + escapeHtml(n.text) +
+      (n.desc ? " - " + escapeHtml(n.desc) : "") + '</div>').join("");
+
+  if (!items.length) {
+    const hint = (p.line || p.towards) && st.available && st.available.length
+      ? '<br><br>Der Filter hat alles verworfen. Vorhanden waren:<br><code>' +
+        st.available.map(escapeHtml).join('<br>') + '</code>'
+      : "";
+    box.innerHTML = warnHtml + '<div class="note">Derzeit keine Abfahrten.' + hint + '</div>';
+    return;
+  }
+
+  const mark = p.planMark !== false;      // Soll-Kennzeichnung je Panel abschaltbar
+  const anyLive = items.some(g => g.entries.some(d => d.live));
+  const banner = !mark || anyLive ? "" : '<div class="banner">Soll-Fahrplan, keine Echtzeitdaten</div>';
+  const outbound = p.outbound ? new RegExp(p.outbound, "i") : null;
+  const inbound = p.inbound ? new RegExp(p.inbound, "i") : null;
+
+  box.innerHTML = warnHtml + banner + items.map(g => {
+    const dir = outbound ? (outbound.test(g.towards) ? " dir-out" : " dir-in")
+              : inbound ? (inbound.test(g.towards) ? " dir-in" : " dir-out") : "";
+    const allPlan = g.entries.every(d => !d.live);
+
+    const meta = g.entries.map(d => {
+      const delay = d.planned ? Math.round((d.at - d.planned) / 60000) : 0;
+      return hhmm(d.at) + (d.live && delay > 0 ? ' <span class="delay">+' + delay + '</span>' : "");
+    }).join(" &middot; ") +
+      (g.entries[0].platform ? " &middot; Bstg. " + escapeHtml(g.entries[0].platform) : "") +
+      (CONFIG.showRbl && g.entries[0].rbl ? " &middot; RBL " + escapeHtml(g.entries[0].rbl) : "");
+
+    // Losgeh-Anzeige: Abfahrt minus Fussweg
+    const walk = typeof p.walkMinutes === "number" ? p.walkMinutes : null;
+    const leave = walk === null ? null : g.entries[0].min - walk;
+    const goNow = leave !== null && leave <= 0;
+    const soon = walk === null ? (g.entries[0].live && g.entries[0].min <= 3) : (!goNow && leave <= 2);
+    const leaveHtml = leave === null ? "" :
+      goNow ? "" : '<span class="leave">los in ' + leave + ' min</span> &middot; ';
+    const cd = g.entries.map(d => d.min).join('<span class="sep">&middot;</span>');
+
+    return '<div class="row' + (g.entries.length > 1 ? " combo" : "") +
+      (allPlan && mark ? " plan" : "") + (goNow ? " go" : "") + '">' +
+      '<div class="badge ' + g.kind + dir + '">' + escapeHtml(g.line) + '</div>' +
+      '<div><div class="towards">' + escapeHtml(g.towards) +
+      (goNow ? '<span class="chip go">Jetzt los</span>' : "") +
+      (allPlan && mark ? '<span class="chip">Soll</span>' : "") + '</div>' +
+      '<div class="meta">' + leaveHtml + meta + '</div></div>' +
+      '<div class="cd' + (soon ? " soon" : "") + '">' + cd + '<small>min</small></div>' +
+      '</div>';
+  }).join("");
+}
+
+function tick() {
+  $("clock").textContent = hhmm(new Date());
+  CONFIG.panels.forEach(renderPanel);
+}
+
+function inQuietHours() {
+  const q = CONFIG.quietHours;
+  if (!q || q.from == null || q.to == null || q.from === q.to) return false;
+  const h = new Date().getHours();
+  return q.from < q.to ? (h >= q.from && h < q.to) : (h >= q.from || h < q.to);
+}
+
+async function refresh() {
+  if (inQuietHours()) {
+    $("status").textContent = "Abruf pausiert bis " + pad(CONFIG.quietHours.to) + ":00";
+    tick();
+    return;
+  }
+  const results = await Promise.allSettled(CONFIG.panels.map(loadPanel));
+  const stamp = Date.now();
+  results.forEach((r, i) => {
+    const st = state[CONFIG.panels[i].id];
+    if (r.status === "fulfilled") {
+      st.rows = r.value;
+      st.err = null;
+      st.lastOk = stamp;
+      // Signatur des Tafelinhalts: aendert sie sich nicht mehr, steht die Quelle
+      const sig = r.value.map(d => d.line + "@" + d.at.getTime()).join(",");
+      if (sig !== st.sig) { st.sig = sig; st.lastChange = stamp; }
+    } else {
+      st.err = r.reason;      // alte Zeilen bleiben stehen, siehe renderPanel
+    }
+  });
+  const bad = CONFIG.panels.filter(p => state[p.id].err).length;
+  $("status").textContent = "Stand " + hhmm(new Date()) + (bad ? " - " + bad + " Quelle(n) mit Fehler" : "");
+  tick();
+}
+
+buildPanels();
+tick();
+refresh();
+setInterval(tick, 1000);
+setInterval(refresh, CONFIG.refreshSeconds * 1000);
+</script>
+</body>
+</html>

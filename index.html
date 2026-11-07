@@ -232,12 +232,19 @@ const CONFIG = {
     //   walkMinutes     : Fussweg zur Bushaltestelle. Busse, die frueher
     //                     abfahren, kommen fuer die Markierung nicht in Frage.
     //                     Angezeigt werden sie trotzdem.
-    //   rideMinutes     : Fahrzeit des Busses bis Atzgersdorf
+    //   rideStopIds     : RBL der Haltestelle in Atzgersdorf, an der der Bus
+    //                     ankommt. Die Fahrzeit wird dann laufend gemessen:
+    //                     Abfahrt dort minus Abfahrt hier, je Bus, mit
+    //                     Echtzeit. 1734 = Bhf. Atzgersdorf S, Knotzenbachgasse
+    //                     (60A Richtung Alterlaa).
+    //   rideMinutes     : Ersatzwert fuer die Fahrzeit, falls die Messung
+    //                     nicht klappt (z. B. Linie haelt dort nicht)
     //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
     { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
       source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
       trafficInfo: true,
-      connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5, rideMinutes: 4, transferMinutes: 3 } },
+      connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5,
+                 rideStopIds: ["1734"], rideMinutes: 4, transferMinutes: 3 } },
 
     // ---- S-Bahn, OeBB -------------------------------------------------------
     // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
@@ -339,14 +346,7 @@ async function wlStopIds(name) {
   return ids;
 }
 
-async function loadWl(p) {
-  const st = state[p.id];
-  if (!st.ids) st.ids = p.stopIds && p.stopIds.length ? p.stopIds : await wlStopIds(p.stop);
-  const url = WL_MON + "?" + st.ids.map(id => "stopId=" + encodeURIComponent(id)).join("&") +
-    (p.trafficInfo ? "&activateTrafficInfo=stoerungkurz&activateTrafficInfo=stoerunglang" : "");
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Monitor HTTP " + res.status);
-  const json = await res.json();
+function wlDepartures(json) {
   const out = [];
   for (const m of (json?.data?.monitors || [])) {
     const rbl = m?.locationStop?.properties?.attributes?.rbl || m?.locationStop?.properties?.name || "";
@@ -365,7 +365,49 @@ async function loadWl(p) {
       }
     }
   }
-  const rows = applyFilters(p, out).sort((a, b) => a.at - b.at);
+  return out;
+}
+
+async function wlMonitor(ids, extra) {
+  const url = WL_MON + "?" + ids.map(id => "stopId=" + encodeURIComponent(id)).join("&") + (extra || "");
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("Monitor HTTP " + res.status);
+  return res.json();
+}
+
+// Fahrzeit je Bus messen: dieselbe Linie an der Zielhaltestelle, erste
+// planmaessige Abfahrt nach der hiesigen. Fahrzeit = Echtzeit dort minus
+// Echtzeit hier. Faellt die Messung unplausibel aus, bleibt der Ersatzwert.
+function measureRides(rows, target) {
+  for (const d of rows) {
+    const ref = d.planned || d.at;
+    let best = null;
+    for (const t of target) {
+      if (t.line !== d.line) continue;
+      const tref = t.planned || t.at;
+      const gap = (tref - ref) / 60000;
+      if (gap <= 0 || gap > 15) continue;
+      if (!best || tref < (best.planned || best.at)) best = t;
+    }
+    if (!best) continue;
+    const real = Math.round((best.at - d.at) / 60000);
+    const plan = Math.round(((best.planned || best.at) - ref) / 60000);
+    d.ride = real > 0 && real <= 20 ? real : plan;
+  }
+}
+
+async function loadWl(p) {
+  const st = state[p.id];
+  if (!st.ids) st.ids = p.stopIds && p.stopIds.length ? p.stopIds : await wlStopIds(p.stop);
+  const json = await wlMonitor(st.ids,
+    p.trafficInfo ? "&activateTrafficInfo=stoerungkurz&activateTrafficInfo=stoerunglang" : "");
+  const rows = applyFilters(p, wlDepartures(json)).sort((a, b) => a.at - b.at);
+
+  // Fahrzeit bis zur Umsteigehaltestelle messen (eigener Abruf, Fehler egal)
+  if (p.connect && p.connect.rideStopIds && p.connect.rideStopIds.length) {
+    try { measureRides(rows, wlDepartures(await wlMonitor(p.connect.rideStopIds))); }
+    catch (e) { /* Ersatzwert rideMinutes greift */ }
+  }
 
   // Stoerungsmeldungen: nur solche, die eine Linie dieses Kastens betreffen
   st.notices = [];
@@ -575,7 +617,8 @@ function connectionFor(p, bus) {
   if (!target || !state[target.id] || !state[target.id].rows) return null;
   const pattern = c.towards || target.outbound || "";
   const re = pattern ? new RegExp(pattern, "i") : null;
-  const ready = bus.at.getTime() + ((c.rideMinutes || 0) + (c.transferMinutes || 0)) * 60000;
+  const ride = typeof bus.ride === "number" ? bus.ride : (c.rideMinutes || 0);
+  const ready = bus.at.getTime() + (ride + (c.transferMinutes || 0)) * 60000;
   return state[target.id].rows.find(t => (!re || re.test(t.towards)) && t.at.getTime() >= ready) || null;
 }
 
@@ -702,11 +745,13 @@ function renderPanel(p) {
     const hasPick = pick && g.entries.includes(pick);
     let connHtml = "";
     if (hasPick) {
-      const arr = pick.at.getTime() + (p.connect.rideMinutes || 0) * 60000;
+      const measured = typeof pick.ride === "number";
+      const ride = measured ? pick.ride : (p.connect.rideMinutes || 0);
+      const arr = pick.at.getTime() + ride * 60000;
       const slack = Math.round((pickTrain.at.getTime() - arr) / 60000);
       connHtml = '<div class="conn">Anschluss ' + hhmm(pickTrain.at) + ' ' + escapeHtml(pickTrain.line) + ' ' +
                  escapeHtml(pickTrain.towards) +
-                 ' <span>(Umstieg ' + slack + ' min)</span></div>';
+                 ' <span>(Fahrt ' + ride + (measured ? "" : " geschätzt") + ', Umstieg ' + slack + ' min)</span></div>';
     }
 
     const soon = g.entries[0].live && g.entries[0].min <= 3;

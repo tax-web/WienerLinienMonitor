@@ -123,7 +123,8 @@
         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .conn span{color:var(--dim)}
   .row.best .conn{color:var(--go);font-weight:600}
-  @media (max-width:520px){ .conn{font-size:11px} }
+  .row .cd .pick{color:var(--go)}
+  @media (max-width:520px){ .conn{font-size:11px} .conn span{display:none} }
 </style>
 </head>
 <body>
@@ -221,21 +222,22 @@ const CONFIG = {
     // eine haeufig fahrende Linie keine seltenere aus der Anzeige draengen.
     // trafficInfo : true blendet Stoerungsmeldungen der Wiener Linien fuer die
     //               Linien dieses Kastens ein (rot hinterlegt, oben im Kasten).
-    // hideBelowMinutes : Fussweg zu dieser Haltestelle. Busse, die frueher
-    //               abfahren, werden ausgeblendet (ersetzt hier den
-    //               allgemeinen Wert oben).
-    // connect     : Anschluss an die S-Bahn. Jede Buszeile zeigt den ersten
-    //               Zug, den du mit diesem Bus erreichst. Der erste erreich-
-    //               bare Bus wird gruen markiert.
+    // connect     : Anschluss an die S-Bahn. Gesucht wird der frueheste Zug
+    //               Richtung Sueden, den du noch erreichst. Gruen markiert
+    //               wird der spaeteste Bus, der diesen Zug noch erreicht,
+    //               mit einer Zeile "Anschluss ..." darunter.
     //   panel           : id des S-Bahn-Kastens
     //   towards         : Ziele der gewuenschten Richtung. Leer lassen heisst:
     //                     die "outbound"-Liste des S-Bahn-Kastens (Suedstrecke)
+    //   walkMinutes     : Fussweg zur Bushaltestelle. Busse, die frueher
+    //                     abfahren, kommen fuer die Markierung nicht in Frage.
+    //                     Angezeigt werden sie trotzdem.
     //   rideMinutes     : Fahrzeit des Busses bis Atzgersdorf
     //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
     { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
       source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
-      trafficInfo: true, hideBelowMinutes: 5,
-      connect: { panel: "atzgersdorf", towards: "", rideMinutes: 4, transferMinutes: 3 } },
+      trafficInfo: true,
+      connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5, rideMinutes: 4, transferMinutes: 3 } },
 
     // ---- S-Bahn, OeBB -------------------------------------------------------
     // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
@@ -640,13 +642,19 @@ function renderPanel(p) {
   }
   items = items.slice(0, p.maxRows || 6);
 
-  // Anschluss an die S-Bahn: erster Zug ab Ankunft plus Umsteigezeit
-  let bestIdx = -1;
+  // Anschluss an die S-Bahn: fruehester erreichbarer Zug Richtung Sueden,
+  // markiert wird der spaeteste Bus, der ihn noch erreicht.
+  let pick = null, pickTrain = null;
   if (p.connect) {
-    items.forEach((g, i) => {
-      g.conn = connectionFor(p, g.entries[0]);
-      if (g.conn && (bestIdx < 0 || g.entries[0].at < items[bestIdx].entries[0].at)) bestIdx = i;
-    });
+    const walk = p.connect.walkMinutes || 0;
+    for (const d of due) {
+      if (d.min < walk) continue;                    // zu Fuss nicht mehr erreichbar
+      const t = connectionFor(p, d);
+      if (!t) continue;
+      const earlier = !pickTrain || t.at < pickTrain.at;
+      const sameLater = pickTrain && t.at.getTime() === pickTrain.at.getTime() && d.at > pick.at;
+      if (earlier || sameLater) { pick = d; pickTrain = t; }
+    }
   }
 
   // Warnhinweise. In der Nachtpause unterdrueckt, dort ist Stillstand gewollt.
@@ -691,19 +699,22 @@ function renderPanel(p) {
       (g.entries[0].platform ? " &middot; Bstg. " + escapeHtml(g.entries[0].platform) : "") +
       (CONFIG.showRbl && g.entries[0].rbl ? " &middot; RBL " + escapeHtml(g.entries[0].rbl) : "");
 
+    const hasPick = pick && g.entries.includes(pick);
     let connHtml = "";
-    if (g.conn) {
-      const arr = g.entries[0].at.getTime() + (p.connect.rideMinutes || 0) * 60000;
-      const slack = Math.round((g.conn.at.getTime() - arr) / 60000);
-      connHtml = '<div class="conn">Anschluss ' + escapeHtml(g.conn.line) + ' ' + escapeHtml(g.conn.towards) +
-                 ' ' + hhmm(g.conn.at) + ' <span>(Umstieg ' + slack + ' min)</span></div>';
+    if (hasPick) {
+      const arr = pick.at.getTime() + (p.connect.rideMinutes || 0) * 60000;
+      const slack = Math.round((pickTrain.at.getTime() - arr) / 60000);
+      connHtml = '<div class="conn">Anschluss ' + hhmm(pickTrain.at) + ' ' + escapeHtml(pickTrain.line) + ' ' +
+                 escapeHtml(pickTrain.towards) +
+                 ' <span>(Umstieg ' + slack + ' min)</span></div>';
     }
 
     const soon = g.entries[0].live && g.entries[0].min <= 3;
-    const cd = g.entries.map(d => d.min).join('<span class="sep">&middot;</span>');
+    const cd = g.entries.map(d => d === pick ? '<span class="pick">' + d.min + '</span>' : d.min)
+                        .join('<span class="sep">&middot;</span>');
 
     return '<div class="row' + (g.entries.length > 1 ? " combo" : "") +
-      (allPlan && mark ? " plan" : "") + (items.indexOf(g) === bestIdx ? " best" : "") + '">' +
+      (allPlan && mark ? " plan" : "") + (hasPick ? " best" : "") + '">' +
       '<div class="badge ' + g.kind + dir + '">' + escapeHtml(g.line) + '</div>' +
       '<div><div class="towards">' + escapeHtml(g.towards) +
       (allPlan && mark ? '<span class="chip">Soll</span>' : "") + '</div>' +

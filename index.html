@@ -240,11 +240,14 @@ const CONFIG = {
     //   rideMinutes     : Ersatzwert fuer die Fahrzeit, falls die Messung
     //                     nicht klappt (z. B. Linie haelt dort nicht)
     //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
+    //   showFrom/showUntil : Zeitfenster, in dem die Markierung erscheint,
+    //                     als "SS:MM". Ausserhalb wird nichts markiert.
     { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
       source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
       trafficInfo: true,
       connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5,
-                 rideStopIds: ["1734", "3754"], rideMinutes: 4, transferMinutes: 3 } },
+                 rideStopIds: ["1734", "3754"], rideMinutes: 4, transferMinutes: 3,
+                 showFrom: "00:00", showUntil: "07:30" } },
 
     // ---- S-Bahn, OeBB -------------------------------------------------------
     // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
@@ -691,7 +694,7 @@ function renderPanel(p) {
   // Anschluss an die S-Bahn: fruehester erreichbarer Zug Richtung Sueden,
   // markiert wird der spaeteste Bus, der ihn noch erreicht.
   let pick = null, pickTrain = null;
-  if (p.connect) {
+  if (p.connect && inWindow(p.connect.showFrom, p.connect.showUntil)) {
     const walk = p.connect.walkMinutes || 0;
     for (const d of due) {
       if (d.min < walk) continue;                    // zu Fuss nicht mehr erreichbar
@@ -782,6 +785,15 @@ function dayMinutes(v) {
   if (typeof v === "number") return Math.round(v * 60);
   const m = /^(\d{1,2})(?::(\d{2}))?$/.exec(String(v || "").trim());
   return m ? (+m[1]) * 60 + (+(m[2] || 0)) : null;
+}
+
+// true, wenn die aktuelle Uhrzeit im Fenster [from, until) liegt.
+// Fehlt eine Grenze, gilt das Fenster als offen.
+function inWindow(from, until) {
+  const f = from == null ? 0 : dayMinutes(from), u = until == null ? 1440 : dayMinutes(until);
+  if (f === null || u === null) return true;
+  const d = new Date(), t = d.getHours() * 60 + d.getMinutes();
+  return f <= u ? (t >= f && t < u) : (t >= f || t < u);
 }
 
 function inQuietHours() {

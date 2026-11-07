@@ -236,7 +236,7 @@ const CONFIG = {
     //                     ankommt. Die Fahrzeit wird dann laufend gemessen:
     //                     Abfahrt dort minus Abfahrt hier, je Bus, mit
     //                     Echtzeit. 1734 = Bhf. Atzgersdorf S, Knotzenbachgasse
-    //                     (60A Richtung Alterlaa).
+    //                     (60A Richtung Alterlaa), 3754 = Atzgersdorf fuer 56A.
     //   rideMinutes     : Ersatzwert fuer die Fahrzeit, falls die Messung
     //                     nicht klappt (z. B. Linie haelt dort nicht)
     //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
@@ -244,7 +244,7 @@ const CONFIG = {
       source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
       trafficInfo: true,
       connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5,
-                 rideStopIds: ["1734"], rideMinutes: 4, transferMinutes: 3 } },
+                 rideStopIds: ["1734", "3754"], rideMinutes: 4, transferMinutes: 3 } },
 
     // ---- S-Bahn, OeBB -------------------------------------------------------
     // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
@@ -378,12 +378,15 @@ async function wlMonitor(ids, extra) {
 // Fahrzeit je Bus messen: dieselbe Linie an der Zielhaltestelle, erste
 // planmaessige Abfahrt nach der hiesigen. Fahrzeit = Echtzeit dort minus
 // Echtzeit hier. Faellt die Messung unplausibel aus, bleibt der Ersatzwert.
+const norm = v => String(v || "").toLowerCase().replace(/[^a-z0-9äöüß]/g, "");
+
 function measureRides(rows, target) {
   for (const d of rows) {
     const ref = d.planned || d.at;
     let best = null;
     for (const t of target) {
       if (t.line !== d.line) continue;
+      if (norm(t.towards) !== norm(d.towards)) continue;   // nur gleiche Fahrtrichtung
       const tref = t.planned || t.at;
       const gap = (tref - ref) / 60000;
       if (gap <= 0 || gap > 15) continue;

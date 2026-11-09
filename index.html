@@ -237,7 +237,7 @@ const CONFIG = {
     //                     Abfahrt dort minus Abfahrt hier, je Bus, mit
     //                     Echtzeit. 1734 = Bhf. Atzgersdorf S, Knotzenbachgasse
     //                     (60A Richtung Alterlaa), 3754 = Atzgersdorf fuer 56A.
-    //   rideMinutes     : Ersatzwert fuer die Fahrzeit, falls die Messung
+    //   rideMinutes     : Ersatzwert fuer die Fahrzeit je Linie, falls die Messung
     //                     nicht klappt (z. B. Linie haelt dort nicht)
     //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
     //   showFrom/showUntil : Zeitfenster, in dem die Markierung erscheint,
@@ -246,7 +246,9 @@ const CONFIG = {
       source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
       trafficInfo: true,
       connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5,
-                 rideStopIds: ["1734", "3754"], rideMinutes: 4, transferMinutes: 3,
+                 rideStopIds: ["1734", "3754"],
+                 rideMinutes: { "58B": 5, "60A": 3, "56A": 3, other: 4 },
+                 transferMinutes: 3,
                  showFrom: "00:00", showUntil: "07:30" } },
 
     // ---- S-Bahn, OeBB -------------------------------------------------------
@@ -617,13 +619,24 @@ async function refreshWeather(force) {
 
 /* ---------- Anschluss Bus an S-Bahn ---------- */
 
+// Ersatzwert der Fahrzeit: Zahl fuer alle Linien oder Liste je Linie
+function rideEstimate(c, line) {
+  const r = c.rideMinutes;
+  if (typeof r === "number") return r;
+  if (r && typeof r === "object") {
+    const v = r[line] != null ? r[line] : r[String(line).toUpperCase()];
+    return typeof v === "number" ? v : (typeof r.other === "number" ? r.other : 0);
+  }
+  return 0;
+}
+
 function connectionFor(p, bus) {
   const c = p.connect;
   const target = CONFIG.panels.find(x => x.id === c.panel);
   if (!target || !state[target.id] || !state[target.id].rows) return null;
   const pattern = c.towards || target.outbound || "";
   const re = pattern ? new RegExp(pattern, "i") : null;
-  const ride = typeof bus.ride === "number" ? bus.ride : (c.rideMinutes || 0);
+  const ride = typeof bus.ride === "number" ? bus.ride : rideEstimate(c, bus.line);
   const ready = bus.at.getTime() + (ride + (c.transferMinutes || 0)) * 60000;
   return state[target.id].rows.find(t => (!re || re.test(t.towards)) && t.at.getTime() >= ready) || null;
 }
@@ -694,6 +707,7 @@ function renderPanel(p) {
   // Anschluss an die S-Bahn: fruehester erreichbarer Zug Richtung Sueden,
   // markiert wird der spaeteste Bus, der ihn noch erreicht.
   let pick = null, pickTrain = null;
+  if (p.connect && state[p.connect.panel]) state[p.connect.panel].connTrain = null;
   if (p.connect && inWindow(p.connect.showFrom, p.connect.showUntil)) {
     const walk = p.connect.walkMinutes || 0;
     for (const d of due) {
@@ -704,7 +718,12 @@ function renderPanel(p) {
       const sameLater = pickTrain && t.at.getTime() === pickTrain.at.getTime() && d.at > pick.at;
       if (earlier || sameLater) { pick = d; pickTrain = t; }
     }
+    // Zug im S-Bahn-Kasten mit gruenem Balken kennzeichnen
+    if (pickTrain && state[p.connect.panel]) state[p.connect.panel].connTrain = pickTrain;
   }
+  const ct = st.connTrain;
+  const isConnTrain = d => ct && d.line === ct.line && d.towards === ct.towards &&
+                           d.at.getTime() === ct.at.getTime();
 
   // Warnhinweise. In der Nachtpause unterdrueckt, dort ist Stillstand gewollt.
   const warns = [];
@@ -748,11 +767,12 @@ function renderPanel(p) {
       (g.entries[0].platform ? " &middot; Bstg. " + escapeHtml(g.entries[0].platform) : "") +
       (CONFIG.showRbl && g.entries[0].rbl ? " &middot; RBL " + escapeHtml(g.entries[0].rbl) : "");
 
-    const hasPick = pick && g.entries.includes(pick);
+    const hasBus = pick && g.entries.includes(pick);
+    const hasPick = hasBus || g.entries.some(isConnTrain);
     let connHtml = "";
-    if (hasPick) {
+    if (hasBus) {
       const measured = typeof pick.ride === "number";
-      const ride = measured ? pick.ride : (p.connect.rideMinutes || 0);
+      const ride = measured ? pick.ride : rideEstimate(p.connect, pick.line);
       const arr = pick.at.getTime() + ride * 60000;
       const slack = Math.round((pickTrain.at.getTime() - arr) / 60000);
       connHtml = '<div class="conn">Anschluss ' + hhmm(pickTrain.at) + ' ' + escapeHtml(pickTrain.line) + ' ' +

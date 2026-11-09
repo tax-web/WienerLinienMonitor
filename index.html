@@ -23,13 +23,15 @@
     --font-m:"IBM Plex Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%}
+  html{height:100%}
   body{
+    min-height:100%;
     background:var(--bg);color:var(--ink);font-family:var(--font-d);
-    display:flex;flex-direction:column;overflow:hidden;
+    display:flex;flex-direction:column;overflow-x:hidden;overflow-y:auto;
     -webkit-user-select:none;user-select:none;
   }
   header{
+    position:sticky;top:0;z-index:5;background:var(--bg);
     display:flex;align-items:center;justify-content:space-between;
     padding:14px 20px 10px;border-bottom:1px solid var(--rule);
   }
@@ -40,7 +42,7 @@
   .wx svg{width:40px;height:40px}
   .wx .sun{fill:#f5c542}.wx .moon{fill:#d9dee4}.wx .cloud{fill:#aeb8c2}.wx .drop{fill:#5aa9e6}
   .wx .snow{fill:#e8f1f8}.wx .bolt{fill:#f5c542}.wx .fog{stroke:#aeb8c2;stroke-width:3;stroke-linecap:round}
-  main{flex:1;display:grid;gap:1px;background:var(--rule);min-height:0}
+  main{flex:1 0 auto;display:grid;gap:1px;background:var(--rule)}
   section{background:var(--panel);display:flex;flex-direction:column;min-height:0}
   .head{display:flex;align-items:center;gap:10px;padding:12px 18px 8px}
   .head h2{font-size:22px;font-weight:700;letter-spacing:.01em}
@@ -135,168 +137,17 @@
 </header>
 <main id="panels"></main>
 
+<script src="config.js" charset="utf-8"></script>
 <script>
-/* ============================================================================
-   EINSTELLUNGEN
-   Alles, was du im Normalfall aendern willst, steht in diesem Block.
-   Unterhalb davon beginnt der Programmteil, dort ist nichts zu tun.
+/* Programmteil. Alle Einstellungen stehen in config.js. */
 
-   Aufbau: Die Anzeige besteht aus "Panels". Ein Panel ist ein Kasten fuer
-   eine Haltestelle in einer Richtung. Untereinander im Hochformat, nebenein-
-   ander im Querformat. Die Reihenfolge der Panels unten ist die Reihenfolge
-   auf dem Bildschirm.
-
-   HALTESTELLENNUMMER FINDEN (Wiener Linien)
-   Jeder Steig hat eine eigene Nummer, die RBL. Sie legt zugleich die Richtung
-   fest, ein Filter nach Fahrtziel ist deshalb nicht noetig.
-   Nachschlagen unter:  https://till.mabe.at/rbl/
-   Haltestelle suchen, Richtung waehlen, die Zahl bei "RBL/StopId" uebernehmen.
-
-   BAHNHOFSNUMMER FINDEN (OeBB)
-   Die Bahn verwendet eine eigene Nummer, die evaId. Wenn du sie nicht kennst,
-   traegst du bei "query" einfach den Bahnhofsnamen ein und laesst "stopId"
-   leer, die Anzeige sucht die Nummer dann selbst.
-
-   ANPASSUNGEN, DIE NICHTS KAPUTT MACHEN
-   - Anzahl der Zeilen:            maxRows
-   - Ueberschrift und Untertitel:  title und tag
-   - Reihenfolge der Kaesten:      Bloecke unten verschieben
-   - Neuer Kasten:                 einen bestehenden Block kopieren,
-                                   id aendern (muss einmalig sein), RBL setzen
-
-   Achtung auf die Zeichensetzung: Jede Zeile endet mit einem Beistrich,
-   Texte stehen zwischen geraden Anfuehrungszeichen. Fehlt ein Beistrich oder
-   eine Klammer, bleibt der Bildschirm leer.
-   ============================================================================ */
-
-const CONFIG = {
-
-  // Wie oft neue Daten geholt werden, in Sekunden. 30 ist ein guter Wert,
-  // darunter belastet es die Datenquellen unnoetig.
-  refreshSeconds: 30,
-
-  // Fussweg zur Haltestelle in Minuten. Abfahrten, die frueher kommen,
-  // werden ausgeblendet, weil du sie ohnehin nicht mehr erreichst.
-  hideBelowMinutes: 1,
-
-  // Nachtruhe: in diesem Zeitfenster werden keine Daten geholt.
-  // Uhrzeiten als "SS:MM" zwischen geraden Anfuehrungszeichen.
-  // "00:00" bis "05:30" heisst Mitternacht bis halb sechs Uhr frueh.
-  // Zum Abschalten beide auf dieselbe Uhrzeit setzen.
-  quietHours: { from: "00:00", to: "05:30" },
-
-  // Ueberwachung der Datenquellen, in Minuten.
-  // staleMinutes  : so lange darf der letzte erfolgreiche Abruf her sein
-  // frozenMinutes : so lange darf sich der Inhalt einer Tafel nicht aendern,
-  //                 danach steht sie vermutlich still, obwohl der Abruf laeuft
-  staleMinutes: 10,
-  frozenMinutes: 45,
-
-  // Nur zum Einrichten: auf true setzen, dann steht in jeder Zeile die RBL
-  // des Steigs, von dem die Fahrt abgeht. Danach wieder auf false.
-  showRbl: false,
-
-  // Wetter in der Kopfzeile (Open-Meteo, kostenlos, ohne Schluessel).
-  // lat/lon: Standort, hier Bahnhof Atzgersdorf. everyMinutes: Abrufintervall.
-  // Zum Abschalten: weather: null
-  weather: { lat: 48.1473, lon: 16.2888, everyMinutes: 10 },
-
-  // Ausweichquelle fuer die Bahn, falls die Hauptquelle einmal ausfaellt.
-  // Nicht aendern.
-  restBase: "https://v6.oebb.transport.rest",
-
-  // ------------------------------------------------------------------------
-  // DIE KAESTEN. Reihenfolge hier = Reihenfolge am Bildschirm.
-  // ------------------------------------------------------------------------
-  panels: [
-
-    // ---- Bus, Wiener Linien -------------------------------------------------
-    // id       : interner Name, muss einmalig sein, kommt nicht auf den Schirm
-    // title    : grosse Ueberschrift des Kastens
-    // tag      : kleiner Text daneben, z. B. die Richtung
-    // source   : "wl" fuer Wiener Linien, "scotty" fuer die OeBB
-    // stopIds  : eine oder mehrere RBL, siehe https://till.mabe.at/rbl/
-    //            Mehrere Richtungen in einem Kasten: ["1648", "1649"]
-    // maxRows  : wie viele Zeilen der Kasten anzeigt
-    // rowsPerLine: 1 heisst, jede Linie bekommt genau eine Zeile. Damit kann
-    // eine haeufig fahrende Linie keine seltenere aus der Anzeige draengen.
-    // trafficInfo : true blendet Stoerungsmeldungen der Wiener Linien fuer die
-    //               Linien dieses Kastens ein (rot hinterlegt, oben im Kasten).
-    // connect     : Anschluss an die S-Bahn. Gesucht wird der frueheste Zug
-    //               Richtung Sueden, den du noch erreichst. Gruen markiert
-    //               wird der spaeteste Bus, der diesen Zug noch erreicht,
-    //               mit einer Zeile "Anschluss ..." darunter.
-    //   panel           : id des S-Bahn-Kastens
-    //   towards         : Ziele der gewuenschten Richtung. Leer lassen heisst:
-    //                     die "outbound"-Liste des S-Bahn-Kastens (Suedstrecke)
-    //   walkMinutes     : Fussweg zur Bushaltestelle. Busse, die frueher
-    //                     abfahren, kommen fuer die Markierung nicht in Frage.
-    //                     Angezeigt werden sie trotzdem.
-    //   rideStopIds     : RBL der Haltestelle in Atzgersdorf, an der der Bus
-    //                     ankommt. Die Fahrzeit wird dann laufend gemessen:
-    //                     Abfahrt dort minus Abfahrt hier, je Bus, mit
-    //                     Echtzeit. 1734 = Bhf. Atzgersdorf S, Knotzenbachgasse
-    //                     (60A Richtung Alterlaa), 3754 = Atzgersdorf fuer 56A.
-    //   rideMinutes     : Ersatzwert fuer die Fahrzeit je Linie, falls die Messung
-    //                     nicht klappt (z. B. Linie haelt dort nicht)
-    //   transferMinutes : Umsteigezeit vom Bus zum Bahnsteig
-    //   showFrom/showUntil : Zeitfenster, in dem die Markierung erscheint,
-    //                     als "SS:MM". Ausserhalb wird nichts markiert.
-    { id: "spiegeln", title: "Am Spiegeln", tag: "Richtung Atzgersdorf",
-      source: "wl", stopIds: ["1648"], maxRows: 3, combine: 2, rowsPerLine: 1,
-      trafficInfo: true,
-      connect: { panel: "atzgersdorf", towards: "", walkMinutes: 5,
-                 rideStopIds: ["1734", "3754"],
-                 rideMinutes: { "58B": 5, "60A": 3, "56A": 3, other: 4 },
-                 transferMinutes: 3,
-                 showFrom: "00:00", showUntil: "07:30" } },
-
-    // ---- S-Bahn, OeBB -------------------------------------------------------
-    // stopId        : Bahnhofsnummer der OeBB (evaId). Leer lassen, dann wird
-    //                 anhand von "query" gesucht.
-    // query         : Name des Bahnhofs, wie ihn die OeBB schreibt
-    // skip          : was nicht angezeigt wird. Hier alle Busse, Strassenbahnen
-    //                 und U-Bahnen, denn die Bahnhofstafel listet auch die.
-    // products      : Vorfilter der OeBB. Diese Ziffernfolge bedeutet
-    //                 "nur S-Bahn und Regionalzuege". Besser nicht aendern.
-    // fetchJourneys : wie viele Fahrten roh geholt werden, bevor gefiltert wird
-    // outbound      : Ziele, die stadtauswaerts liegen. Sie bekommen eine
-    //                 gruene Nummer, alle uebrigen eine blaue. Weitere Ziele
-    //                 mit einem senkrechten Strich anhaengen. Gross- und
-    //                 Kleinschreibung ist egal.
-    { id: "atzgersdorf", title: "Atzgersdorf", tag: "S-Bahn",
-      source: "scotty", stopId: "001192304", query: "Atzgersdorf (Wien)",
-      skip: "^(bus|tram|u\\d)", products: "0000110000000000",
-      fetchJourneys: 40, maxRows: 6,
-      outbound: "mödling|modling|baden|liesing|wr[. ]*neustadt|perchtoldsdorf|leobersdorf" },
-
-    // ---- Strassenbahn, Wiener Linien ---------------------------------------
-    // combine : fasst mehrere Abfahrten derselben Linie in eine Zeile zusammen,
-    //           um Platz zu sparen. combine 2 und maxRows 2 ergibt zwei Zeilen
-    //           mit je zwei Abfahrten, also vier Abfahrten insgesamt.
-    { id: "asenbauer", title: "Franz-Asenbauer-Gasse", tag: "Richtung Westbahnhof",
-      source: "wl", stopIds: ["1630"], maxRows: 2, combine: 2 }
-
-    // Weitere Kaesten hier anhaengen. Vor einem neuen Block gehoert ein
-    // Beistrich hinter die schliessende geschweifte Klammer des vorherigen.
-
-  ]
-};
-
-/* Weitere Moeglichkeiten, die in den Kaesten oben nicht gebraucht werden:
-
-   stop      : Haltestellenname statt RBL, z. B.  stop: "Am Spiegeln"
-               Dann werden alle Steige dieser Haltestelle abgefragt, also
-               beide Richtungen. Braucht meist zusaetzlich "towards".
-   towards   : Filter auf das Fahrtziel, z. B.  towards: "atzgersdorf|alterlaa"
-   line      : Filter auf die Liniennummer, z. B.  line: "^60$"
-               Die Zeichen am Anfang und Ende bedeuten "genau 60",
-               damit nicht auch der Bus 60A mitlaeuft.
-   rowsPerLine: begrenzt, wie viele Zeilen eine einzelne Linie belegen darf.
-               1 heisst: jede Linie genau eine Zeile.
-   planMark  : auf false setzen, wenn Fahrten ohne Echtzeitdaten nicht mehr
-               grau und mit dem Zusatz "Soll" gekennzeichnet werden sollen.
-*/
+if (typeof CONFIG === "undefined") {
+  document.getElementById("panels").innerHTML =
+    '<div class="note" style="padding:24px">config.js fehlt oder enthält einen Fehler ' +
+    '(z. B. fehlender Beistrich oder Anführungszeichen). Bitte die Datei prüfen.</div>';
+  document.getElementById("status").textContent = "Konfiguration fehlt";
+  throw new Error("config.js fehlt oder ist fehlerhaft");
+}
 
 const WL_CSV = "https://www.wienerlinien.at/ogd_realtime/doku/ogd/wienerlinien-ogd-haltepunkte.csv";
 const WL_MON = "https://www.wienerlinien.at/ogd_realtime/monitor";

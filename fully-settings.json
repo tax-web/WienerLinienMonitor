@@ -1,0 +1,41 @@
+{
+  "startURL": "https://tax-web.github.io/WienerLinienMonitor/",
+  "removeXframeOptionsUrl": "https://www.wienerlinien.at/*\nhttps://fahrplan.oebb.at/*\nhttps://v6.oebb.transport.rest/*\nhttps://api.open-meteo.com/*",
+
+  "launchOnBoot": true,
+  "runInForeground": true,
+  "restartOnCrash": true,
+
+  "keepScreenOn": true,
+  "preventSleepWhileScreenOff": true,
+  "timeToScreenOffV2": "0",
+  "timeToScreensaverV2": "0",
+  "sleepOnPowerConnect": false,
+  "sleepOnPowerDisconnect": false,
+  "forceSleepIfUnplugged": false,
+  "wakeupOnPowerConnect": true,
+  "motionDetection": false,
+
+  "reloadPageFailure": "60",
+  "reloadEachSeconds": "0",
+  "reloadOnInternet": true,
+  "reloadOnWifiOn": true,
+  "waitInternetOnReload": true,
+  "reloadOnScreenOn": true,
+  "skipReloadIfStartUrlShowing": false,
+  "deleteCacheOnReload": false,
+  "deleteWebstorageOnReload": false,
+
+  "showStatusBar": false,
+  "showNavigationBar": false,
+  "showActionBar": false,
+  "showAddressBar": false,
+  "showTabs": false,
+  "enablePullToRefresh": false,
+  "enableZoom": false,
+  "textSelection": false,
+  "disableContextMenu": true,
+  "enablePopups": false,
+  "enableUrlOtherApps": false,
+  "ignoreSSLerrors": false
+}

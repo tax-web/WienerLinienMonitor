@@ -126,6 +126,7 @@
   .conn span{color:var(--dim)}
   .row.best .conn{color:var(--go);font-weight:600}
   .row .cd .pick{color:var(--go)}
+  .meta .slack{color:var(--go);font-weight:600}
   @media (max-width:520px){ .conn{font-size:11px} .conn span{display:none} }
 </style>
 </head>
@@ -570,7 +571,12 @@ function renderPanel(p) {
       if (earlier || sameLater) { pick = d; pickTrain = t; }
     }
     // Zug im S-Bahn-Kasten mit gruenem Balken kennzeichnen
-    if (pickTrain && state[p.connect.panel]) state[p.connect.panel].connTrain = pickTrain;
+    if (pickTrain && state[p.connect.panel]) {
+      // Umsteigezeit = Abfahrt Zug minus Ankunft Bus in Atzgersdorf
+      const ride = typeof pick.ride === "number" ? pick.ride : rideEstimate(p.connect, pick.line);
+      state[p.connect.panel].connTrain = pickTrain;
+      state[p.connect.panel].connSlack = Math.round((pickTrain.at.getTime() - pick.at.getTime()) / 60000) - ride;
+    }
   }
   const ct = st.connTrain;
   const isConnTrain = d => ct && d.line === ct.line && d.towards === ct.towards &&
@@ -616,21 +622,12 @@ function renderPanel(p) {
       return hhmm(d.at) + (d.live && delay > 0 ? ' <span class="delay">+' + delay + '</span>' : "");
     }).join(" &middot; ") +
       (g.entries[0].platform ? " &middot; Bstg. " + escapeHtml(g.entries[0].platform) : "") +
-      (CONFIG.showRbl && g.entries[0].rbl ? " &middot; RBL " + escapeHtml(g.entries[0].rbl) : "");
+      (CONFIG.showRbl && g.entries[0].rbl ? " &middot; RBL " + escapeHtml(g.entries[0].rbl) : "") +
+      (g.entries.some(isConnTrain) && typeof st.connSlack === "number"
+        ? ' &middot; <span class="slack">Umstieg ' + st.connSlack + ' min</span>' : "");
 
     const hasBus = pick && g.entries.includes(pick);
     const hasPick = hasBus || g.entries.some(isConnTrain);
-    let connHtml = "";
-    if (hasBus) {
-      const measured = typeof pick.ride === "number";
-      const ride = measured ? pick.ride : rideEstimate(p.connect, pick.line);
-      const arr = pick.at.getTime() + ride * 60000;
-      const slack = Math.round((pickTrain.at.getTime() - arr) / 60000);
-      connHtml = '<div class="conn">Anschluss ' + hhmm(pickTrain.at) + ' ' + escapeHtml(pickTrain.line) + ' ' +
-                 escapeHtml(pickTrain.towards) +
-                 ' <span>(Fahrt ' + ride + (measured ? "" : " geschätzt") + ', Umstieg ' + slack + ' min)</span></div>';
-    }
-
     const soon = g.entries[0].live && g.entries[0].min <= 3;
     const cd = g.entries.map(d => d === pick ? '<span class="pick">' + d.min + '</span>' : d.min)
                         .join('<span class="sep">&middot;</span>');

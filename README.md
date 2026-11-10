@@ -84,7 +84,7 @@ die Richtung fest.
 ### Anschluss Bus an S-Bahn (`connect`)
 
 Markiert grün den spätesten Bus, mit dem der früheste Zug Richtung Süden erreicht wird, und
-diesen Zug im S-Bahn-Kasten.
+diesen Zug im S-Bahn-Kasten. Eine Textzeile zum Anschluss gibt es nicht.
 
 | Eintrag | Bedeutung | Aktuell |
 |---|---|---|

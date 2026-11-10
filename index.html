@@ -640,7 +640,7 @@ function renderPanel(p) {
       '<div class="badge ' + g.kind + dir + '">' + escapeHtml(g.line) + '</div>' +
       '<div><div class="towards">' + escapeHtml(g.towards) +
       (allPlan && mark ? '<span class="chip">Soll</span>' : "") + '</div>' +
-      '<div class="meta">' + meta + '</div>' + connHtml + '</div>' +
+      '<div class="meta">' + meta + '</div></div>' +
       '<div class="cd' + (soon ? " soon" : "") + '">' + cd + '<small>min</small></div>' +
       '</div>';
   }).join("");
